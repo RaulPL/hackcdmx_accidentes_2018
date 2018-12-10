@@ -1,0 +1,862 @@
+
+<script src="https://cdn.pydata.org/bokeh/release/bokeh-1.0.2.min.js" type="text/javascript"></script>
+<script src="https://cdn.pydata.org/bokeh/release/bokeh-widgets-1.0.2.min.js" type="text/javascript"></script>
+<script src="https://cdn.pydata.org/bokeh/release/bokeh-tables-1.0.2.min.js" type="text/javascript"></script>
+<script src="https://cdn.pydata.org/bokeh/release/bokeh-gl-1.0.2.min.js" type="text/javascript"></script>
+<script src="https://code.jquery.com/jquery-2.1.4.min.js" type="text/javascript"></script>
+<script src="https://code.jquery.com/ui/1.10.4/jquery-ui.min.js" type="text/javascript"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.20/require.min.js" type="text/javascript"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.8.3/underscore-min.js" type="text/javascript"></script>
+<script type="text/javascript">function HoloViewsWidget() {
+}
+
+HoloViewsWidget.prototype.init_slider = function(init_val){
+  if(this.load_json) {
+    this.from_json()
+  } else {
+    this.update_cache();
+  }
+}
+
+HoloViewsWidget.prototype.populate_cache = function(idx){
+  this.cache[idx].innerHTML = this.frames[idx];
+  if (this.embed) {
+    delete this.frames[idx];
+  }
+}
+
+HoloViewsWidget.prototype.process_error = function(msg){
+}
+
+HoloViewsWidget.prototype.from_json = function() {
+  var data_url = this.json_path + this.id + '.json';
+  $.getJSON(data_url, $.proxy(function(json_data) {
+    this.frames = json_data;
+    this.update_cache();
+    this.update(0);
+  }, this));
+}
+
+HoloViewsWidget.prototype.dynamic_update = function(current){
+  if (current === undefined) {
+    return
+  }
+  this.current = current;
+  if (this.comm) {
+    var msg = {comm_id: this.id+'_client', content: current}
+    this.comm.send(msg);
+  }
+}
+
+HoloViewsWidget.prototype.update_cache = function(force){
+  var frame_len = Object.keys(this.frames).length;
+  for (var i=0; i<frame_len; i++) {
+    if(!this.load_json || this.dynamic)  {
+      var frame = Object.keys(this.frames)[i];
+    } else {
+      var frame = i;
+    }
+    if(!(frame in this.cache) || force) {
+      if ((frame in this.cache) && force) { this.cache[frame].remove() }
+      var div = document.createElement("div");
+      var parent = document.getElementById("_anim_img"+this.id);
+      div.style.display = "none";
+      parent.appendChild(div)
+      this.cache[frame] = div;
+      var cache_id = "_anim_img"+this.id+"_"+frame;
+      this.populate_cache(frame);
+    }
+  }
+}
+
+HoloViewsWidget.prototype.update = function(current){
+  if(current in this.cache) {
+    for (var index in this.cache) {
+      this.cache[index].style.display = "none";
+    }
+    this.cache[current].style.display = "";
+    this.wait = false;
+  }
+}
+
+HoloViewsWidget.prototype.init_comms = function() {
+  var that = this
+  HoloViews.comm_manager.register_target(this.plot_id, this.id, function (msg) { that.process_msg(msg) })
+  if (!this.cached || this.dynamic) {
+    function ack_callback(msg) {
+      msg = JSON.parse(msg.content.data);
+      var comm_id = msg["comm_id"]
+      var comm_status = HoloViews.comm_status[comm_id];
+      if (that.queue.length > 0) {
+        that.time = Date.now();
+        that.dynamic_update(that.queue[that.queue.length-1]);
+        that.queue = [];
+      } else {
+        that.wait = false;
+      }
+      if ((msg.msg_type == "Ready") && msg.content) {
+        console.log("Python callback returned following output:", msg.content);
+      } else if (msg.msg_type == "Error") {
+        console.log("Python failed with the following traceback:", msg['traceback'])
+      }
+    }
+    var comm = HoloViews.comm_manager.get_client_comm(this.plot_id, this.id+'_client', ack_callback);
+    return comm
+  }
+}
+
+HoloViewsWidget.prototype.process_msg = function(msg) {
+}
+
+function SelectionWidget(frames, id, slider_ids, keyMap, dim_vals, notFound, load_json, mode, cached, json_path, dynamic, plot_id){
+  this.frames = frames;
+  this.id = id;
+  this.plot_id = plot_id;
+  this.slider_ids = slider_ids;
+  this.keyMap = keyMap
+  this.current_frame = 0;
+  this.current_vals = dim_vals;
+  this.load_json = load_json;
+  this.mode = mode;
+  this.notFound = notFound;
+  this.cached = cached;
+  this.dynamic = dynamic;
+  this.cache = {};
+  this.json_path = json_path;
+  this.init_slider(this.current_vals[0]);
+  this.queue = [];
+  this.wait = false;
+  if (!this.cached || this.dynamic) {
+    this.comm = this.init_comms();
+  }
+}
+
+SelectionWidget.prototype = new HoloViewsWidget;
+
+
+SelectionWidget.prototype.get_key = function(current_vals) {
+  var key = "(";
+  for (var i=0; i<this.slider_ids.length; i++)
+  {
+    var val = this.current_vals[i];
+    if (!(typeof val === 'string')) {
+      if (val % 1 === 0) { val = val.toFixed(1); }
+      else { val = val.toFixed(10); val = val.slice(0, val.length-1);}
+    }
+    key += "'" + val + "'";
+    if(i != this.slider_ids.length-1) { key += ', ';}
+    else if(this.slider_ids.length == 1) { key += ',';}
+  }
+  key += ")";
+  return this.keyMap[key];
+}
+
+SelectionWidget.prototype.set_frame = function(dim_val, dim_idx){
+  this.current_vals[dim_idx] = dim_val;
+  var key = this.current_vals;
+  if (!this.dynamic) {
+    key = this.get_key(key)
+  }
+  if (this.dynamic || !this.cached) {
+    if ((this.time !== undefined) && ((this.wait) && ((this.time + 10000) > Date.now()))) {
+      this.queue.push(key);
+      return
+    }
+    this.queue = [];
+    this.time = Date.now();
+    this.current_frame = key;
+    this.wait = true;
+    this.dynamic_update(key)
+  } else if (key !== undefined) {
+    this.update(key)
+  }
+}
+
+
+/* Define the ScrubberWidget class */
+function ScrubberWidget(frames, num_frames, id, interval, load_json, mode, cached, json_path, dynamic, plot_id){
+  this.slider_id = "_anim_slider" + id;
+  this.loop_select_id = "_anim_loop_select" + id;
+  this.id = id;
+  this.plot_id = plot_id;
+  this.interval = interval;
+  this.current_frame = 0;
+  this.direction = 0;
+  this.dynamic = dynamic;
+  this.timer = null;
+  this.load_json = load_json;
+  this.mode = mode;
+  this.cached = cached;
+  this.frames = frames;
+  this.cache = {};
+  this.length = num_frames;
+  this.json_path = json_path;
+  document.getElementById(this.slider_id).max = this.length - 1;
+  this.init_slider(0);
+  this.wait = false;
+  this.queue = [];
+  if (!this.cached || this.dynamic) {
+    this.comm = this.init_comms()
+  }
+}
+
+ScrubberWidget.prototype = new HoloViewsWidget;
+
+ScrubberWidget.prototype.set_frame = function(frame){
+  this.current_frame = frame;
+  var widget = document.getElementById(this.slider_id);
+  if (widget === null) {
+    this.pause_animation();
+    return
+  }
+  widget.value = this.current_frame;
+  if (this.dynamic || !this.cached) {
+    if ((this.time !== undefined) && ((this.wait) && ((this.time + 10000) > Date.now()))) {
+      this.queue.push(frame);
+      return
+    }
+    this.queue = [];
+    this.time = Date.now();
+    this.wait = true;
+    this.dynamic_update(frame)
+  } else {
+    this.update(frame)
+  }
+}
+
+ScrubberWidget.prototype.get_loop_state = function(){
+  var button_group = document[this.loop_select_id].state;
+  for (var i = 0; i < button_group.length; i++) {
+    var button = button_group[i];
+    if (button.checked) {
+      return button.value;
+    }
+  }
+  return undefined;
+}
+
+
+ScrubberWidget.prototype.next_frame = function() {
+  this.set_frame(Math.min(this.length - 1, this.current_frame + 1));
+}
+
+ScrubberWidget.prototype.previous_frame = function() {
+  this.set_frame(Math.max(0, this.current_frame - 1));
+}
+
+ScrubberWidget.prototype.first_frame = function() {
+  this.set_frame(0);
+}
+
+ScrubberWidget.prototype.last_frame = function() {
+  this.set_frame(this.length - 1);
+}
+
+ScrubberWidget.prototype.slower = function() {
+  this.interval /= 0.7;
+  if(this.direction > 0){this.play_animation();}
+  else if(this.direction < 0){this.reverse_animation();}
+}
+
+ScrubberWidget.prototype.faster = function() {
+  this.interval *= 0.7;
+  if(this.direction > 0){this.play_animation();}
+  else if(this.direction < 0){this.reverse_animation();}
+}
+
+ScrubberWidget.prototype.anim_step_forward = function() {
+  if(this.current_frame < this.length - 1){
+    this.next_frame();
+  }else{
+    var loop_state = this.get_loop_state();
+    if(loop_state == "loop"){
+      this.first_frame();
+    }else if(loop_state == "reflect"){
+      this.last_frame();
+      this.reverse_animation();
+    }else{
+      this.pause_animation();
+      this.last_frame();
+    }
+  }
+}
+
+ScrubberWidget.prototype.anim_step_reverse = function() {
+  if(this.current_frame > 0){
+    this.previous_frame();
+  } else {
+    var loop_state = this.get_loop_state();
+    if(loop_state == "loop"){
+      this.last_frame();
+    }else if(loop_state == "reflect"){
+      this.first_frame();
+      this.play_animation();
+    }else{
+      this.pause_animation();
+      this.first_frame();
+    }
+  }
+}
+
+ScrubberWidget.prototype.pause_animation = function() {
+  this.direction = 0;
+  if (this.timer){
+    clearInterval(this.timer);
+    this.timer = null;
+  }
+}
+
+ScrubberWidget.prototype.play_animation = function() {
+  this.pause_animation();
+  this.direction = 1;
+  var t = this;
+  if (!this.timer) this.timer = setInterval(function(){t.anim_step_forward();}, this.interval);
+}
+
+ScrubberWidget.prototype.reverse_animation = function() {
+  this.pause_animation();
+  this.direction = -1;
+  var t = this;
+  if (!this.timer) this.timer = setInterval(function(){t.anim_step_reverse();}, this.interval);
+}
+
+function extend(destination, source) {
+  for (var k in source) {
+    if (source.hasOwnProperty(k)) {
+      destination[k] = source[k];
+    }
+  }
+  return destination;
+}
+
+function update_widget(widget, values) {
+  if (widget.hasClass("ui-slider")) {
+    widget.slider('option', {
+      min: 0,
+      max: values.length-1,
+      dim_vals: values,
+      value: 0,
+      dim_labels: values
+    })
+    widget.slider('option', 'slide').call(widget, event, {value: 0})
+  } else {
+    widget.empty();
+    for (var i=0; i<values.length; i++){
+      widget.append($("<option>", {
+        value: i,
+        text: values[i]
+      }))
+    };
+    widget.data('values', values);
+    widget.data('value', 0);
+    widget.trigger("change");
+  };
+}
+
+function init_slider(id, plot_id, dim, values, next_vals, labels, dynamic, step, value, next_dim,
+                     dim_idx, delay, jQueryUI_CDN, UNDERSCORE_CDN) {
+  // Slider JS Block START
+  function loadcssfile(filename){
+    var fileref=document.createElement("link")
+    fileref.setAttribute("rel", "stylesheet")
+    fileref.setAttribute("type", "text/css")
+    fileref.setAttribute("href", filename)
+    document.getElementsByTagName("head")[0].appendChild(fileref)
+  }
+  loadcssfile("https://code.jquery.com/ui/1.10.4/themes/smoothness/jquery-ui.css");
+  /* Check if jQuery and jQueryUI have been loaded
+     otherwise load with require.js */
+  var jQuery = window.jQuery,
+    // check for old versions of jQuery
+    oldjQuery = jQuery && !!jQuery.fn.jquery.match(/^1\.[0-4](\.|$)/),
+    jquery_path = '',
+    paths = {},
+    noConflict;
+  var jQueryUI = jQuery.ui;
+  // check for jQuery
+  if (!jQuery || oldjQuery) {
+    // load if it's not available or doesn't meet min standards
+    paths.jQuery = jQuery;
+    noConflict = !!oldjQuery;
+  } else {
+    // register the current jQuery
+    define('jquery', [], function() { return jQuery; });
+  }
+  if (!jQueryUI) {
+    paths.jQueryUI = jQueryUI_CDN.slice(null, -3);
+  } else {
+    define('jQueryUI', [], function() { return jQuery.ui; });
+  }
+  paths.underscore = UNDERSCORE_CDN.slice(null, -3);
+  var jquery_require = {
+    paths: paths,
+    shim: {
+      "jQueryUI": {
+        exports:"$",
+        deps: ['jquery']
+      },
+      "underscore": {
+        exports: '_'
+      }
+    }
+  }
+  require.config(jquery_require);
+  require(["jQueryUI", "underscore"], function(jUI, _){
+    if (noConflict) $.noConflict(true);
+    var vals = values;
+    if (dynamic && vals.constructor === Array) {
+      var default_value = parseFloat(value);
+      var min = parseFloat(vals[0]);
+      var max = parseFloat(vals[vals.length-1]);
+      var wstep = step;
+      var wlabels = [default_value];
+      var init_label = default_value;
+    } else {
+      var min = 0;
+      if (dynamic) {
+        var max = Object.keys(vals).length - 1;
+        var init_label = labels[value];
+        var default_value = values[value];
+      } else {
+        var max = vals.length - 1;
+        var init_label = labels[value];
+        var default_value = value;
+      }
+      var wstep = 1;
+      var wlabels = labels;
+    }
+    function adjustFontSize(text) {
+      var width_ratio = (text.parent().width()/8)/text.val().length;
+      var size = Math.min(0.9, Math.max(0.6, width_ratio))+'em';
+      text.css('font-size', size);
+    }
+    var slider = $('#_anim_widget'+id+'_'+dim);
+    slider.slider({
+      animate: "fast",
+      min: min,
+      max: max,
+      step: wstep,
+      value: default_value,
+      dim_vals: vals,
+      dim_labels: wlabels,
+      next_vals: next_vals,
+      slide: function(event, ui) {
+        var vals = slider.slider("option", "dim_vals");
+        var next_vals = slider.slider("option", "next_vals");
+        var dlabels = slider.slider("option", "dim_labels");
+        if (dynamic) {
+          var dim_val = ui.value;
+          if (vals.constructor === Array) {
+            var label = ui.value;
+          } else {
+            var label = dlabels[ui.value];
+          }
+        } else {
+          var dim_val = vals[ui.value];
+          var label = dlabels[ui.value];
+        }
+        var text = $('#textInput'+id+'_'+dim);
+        text.val(label);
+        adjustFontSize(text);
+        HoloViews.index[plot_id].set_frame(dim_val, dim_idx);
+        if (Object.keys(next_vals).length > 0) {
+          var new_vals = next_vals[dim_val];
+          var next_widget = $('#_anim_widget'+id+'_'+next_dim);
+          update_widget(next_widget, new_vals);
+        }
+      }
+    });
+    slider.keypress(function(event) {
+      if (event.which == 80 || event.which == 112) {
+        var start = slider.slider("option", "value");
+        var stop =  slider.slider("option", "max");
+        for (var i=start; i<=stop; i++) {
+          var delay = i*delay;
+          $.proxy(function doSetTimeout(i) { setTimeout($.proxy(function() {
+            var val = {value:i};
+            slider.slider('value',i);
+            slider.slider("option", "slide")(null, val);
+          }, slider), delay);}, slider)(i);
+        }
+      }
+      if (event.which == 82 || event.which == 114) {
+        var start = slider.slider("option", "value");
+        var stop =  slider.slider("option", "min");
+        var count = 0;
+        for (var i=start; i>=stop; i--) {
+          var delay = count*delay;
+          count = count + 1;
+          $.proxy(function doSetTimeout(i) { setTimeout($.proxy(function() {
+            var val = {value:i};
+            slider.slider('value',i);
+            slider.slider("option", "slide")(null, val);
+          }, slider), delay);}, slider)(i);
+        }
+      }
+    });
+    var textInput = $('#textInput'+id+'_'+dim)
+    textInput.val(init_label);
+    adjustFontSize(textInput);
+  });
+}
+
+function init_dropdown(id, plot_id, dim, vals, value, next_vals, labels, next_dim, dim_idx, dynamic) {
+  var widget = $("#_anim_widget"+id+'_'+dim);
+  widget.data('values', vals)
+  for (var i=0; i<vals.length; i++){
+    if (dynamic) {
+      var val = vals[i];
+    } else {
+      var val = i;
+    }
+    widget.append($("<option>", {
+      value: val,
+      text: labels[i]
+    }));
+  };
+  widget.data("next_vals", next_vals);
+  widget.val(value);
+  widget.on('change', function(event, ui) {
+    if (dynamic) {
+      var dim_val = parseInt(this.value);
+    } else {
+      var dim_val = $.data(this, 'values')[this.value];
+    }
+    var next_vals = $.data(this, "next_vals");
+    if (Object.keys(next_vals).length > 0) {
+      var new_vals = next_vals[dim_val];
+      var next_widget = $('#_anim_widget'+id+'_'+next_dim);
+      update_widget(next_widget, new_vals);
+    }
+    var widgets = HoloViews.index[plot_id]
+    if (widgets) {
+      widgets.set_frame(dim_val, dim_idx);
+    }
+  });
+}
+
+
+if (window.HoloViews === undefined) {
+  window.HoloViews = {}
+  window.PyViz = window.HoloViews
+} else if (window.PyViz === undefined) {
+  window.PyViz = window.HoloViews
+}
+
+
+var _namespace = {
+  init_slider: init_slider,
+  init_dropdown: init_dropdown,
+  comms: {},
+  comm_status: {},
+  index: {},
+  plot_index: {},
+  kernels: {},
+  receivers: {}
+}
+
+for (var k in _namespace) {
+  if (!(k in window.HoloViews)) {
+    window.HoloViews[k] = _namespace[k];
+  }
+}
+
+// Define Bokeh specific subclasses
+function BokehSelectionWidget() {
+  SelectionWidget.apply(this, arguments);
+}
+
+function BokehScrubberWidget() {
+  ScrubberWidget.apply(this, arguments);
+}
+
+// Let them inherit from the baseclasses
+BokehSelectionWidget.prototype = Object.create(SelectionWidget.prototype);
+BokehScrubberWidget.prototype = Object.create(ScrubberWidget.prototype);
+
+// Define methods to override on widgets
+var BokehMethods = {
+  update_cache : function(){
+    for (var index in this.frames) {
+      this.frames[index] = JSON.parse(this.frames[index]);
+    }
+  },
+  update : function(current){
+    if (current === undefined) {
+      return;
+    }
+    var data = this.frames[current];
+    if (data !== undefined) {
+      if (data.root in HoloViews.plot_index) {
+        var doc = HoloViews.plot_index[data.root].model.document;
+      } else {
+        var doc = Bokeh.index[data.root].model.document;
+      }
+      doc.apply_json_patch(data.content);
+    }
+  },
+  init_comms: function() {
+    if (Bokeh.protocol !== undefined) {
+      this.receiver = new Bokeh.protocol.Receiver()
+    } else {
+      this.receiver = null;
+    }
+    return HoloViewsWidget.prototype.init_comms.call(this);
+  },
+  process_msg : function(msg) {
+    if (this.plot_id in HoloViews.plot_index) {
+      var doc = HoloViews.plot_index[this.plot_id].model.document;
+    } else {
+      var doc = Bokeh.index[this.plot_id].model.document;
+    }
+    if (this.receiver === null) { return }
+    var receiver = this.receiver;
+    if (msg.buffers.length > 0) {
+      receiver.consume(msg.buffers[0].buffer)
+    } else {
+      receiver.consume(msg.content.data)
+    }
+    const comm_msg = receiver.message;
+    if ((comm_msg != null) && (doc != null)) {
+      doc.apply_json_patch(comm_msg.content, comm_msg.buffers)
+    }
+  }
+}
+
+// Extend Bokeh widgets with backend specific methods
+extend(BokehSelectionWidget.prototype, BokehMethods);
+extend(BokehScrubberWidget.prototype, BokehMethods);
+
+window.HoloViews.BokehSelectionWidget = BokehSelectionWidget
+window.HoloViews.BokehScrubberWidget = BokehScrubberWidget
+
+// Define MPL specific subclasses
+function MPLSelectionWidget() {
+  SelectionWidget.apply(this, arguments);
+}
+
+function MPLScrubberWidget() {
+  ScrubberWidget.apply(this, arguments);
+}
+
+// Let them inherit from the baseclasses
+MPLSelectionWidget.prototype = Object.create(SelectionWidget.prototype);
+MPLScrubberWidget.prototype = Object.create(ScrubberWidget.prototype);
+
+// Define methods to override on widgets
+var MPLMethods = {
+  init_slider : function(init_val){
+    if(this.load_json) {
+      this.from_json()
+    } else {
+      this.update_cache();
+    }
+    if (this.dynamic | !this.cached | (this.current_vals === undefined)) {
+      this.update(0)
+    } else {
+      this.set_frame(this.current_vals[0], 0)
+    }
+  },
+  process_msg : function(msg) {
+    var data = msg.content.data;
+    this.frames[this.current] = data;
+    this.update_cache(true);
+    this.update(this.current);
+  }
+}
+// Extend MPL widgets with backend specific methods
+extend(MPLSelectionWidget.prototype, MPLMethods);
+extend(MPLScrubberWidget.prototype, MPLMethods);
+
+window.HoloViews.MPLSelectionWidget = MPLSelectionWidget
+window.HoloViews.MPLScrubberWidget = MPLScrubberWidget
+</script>
+<script type="text/javascript">
+    function JupyterCommManager() {
+    }
+
+    JupyterCommManager.prototype.register_target = function(plot_id, comm_id, msg_handler) {
+      if (window.comm_manager || ((window.Jupyter !== undefined) && (Jupyter.notebook.kernel != null))) {
+        var comm_manager = window.comm_manager || Jupyter.notebook.kernel.comm_manager;
+        comm_manager.register_target(comm_id, function(comm) {
+          comm.on_msg(msg_handler);
+        });
+      } else if ((plot_id in window.PyViz.kernels) && (window.PyViz.kernels[plot_id])) {
+        window.PyViz.kernels[plot_id].registerCommTarget(comm_id, function(comm) {
+          comm.onMsg = msg_handler;
+        });
+      }
+    }
+
+    JupyterCommManager.prototype.get_client_comm = function(plot_id, comm_id, msg_handler) {
+      if (comm_id in window.PyViz.comms) {
+        return window.PyViz.comms[comm_id];
+      } else if (window.comm_manager || ((window.Jupyter !== undefined) && (Jupyter.notebook.kernel != null))) {
+        var comm_manager = window.comm_manager || Jupyter.notebook.kernel.comm_manager;
+        var comm = comm_manager.new_comm(comm_id, {}, {}, {}, comm_id);
+        if (msg_handler) {
+          comm.on_msg(msg_handler);
+        }
+      } else if ((plot_id in window.PyViz.kernels) && (window.PyViz.kernels[plot_id])) {
+        var comm = window.PyViz.kernels[plot_id].connectToComm(comm_id);
+        comm.open();
+        if (msg_handler) {
+          comm.onMsg = msg_handler;
+        }
+      }
+
+      window.PyViz.comms[comm_id] = comm;
+      return comm;
+    }
+
+    window.PyViz.comm_manager = new JupyterCommManager();
+    </script>
+
+<link rel="stylesheet" href="https://cdn.pydata.org/bokeh/release/bokeh-1.0.2.min.css">
+<link rel="stylesheet" href="https://cdn.pydata.org/bokeh/release/bokeh-widgets-1.0.2.min.css">
+<link rel="stylesheet" href="https://cdn.pydata.org/bokeh/release/bokeh-tables-1.0.2.min.css">
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://code.jquery.com/ui/1.10.4/themes/smoothness/jquery-ui.css">
+<style>div.hololayout {
+  display: flex;
+  align-items: center;
+  margin: 0;
+}
+
+div.holoframe {
+  width: 75%;
+}
+
+div.holowell {
+  display: flex;
+  align-items: center;
+}
+
+form.holoform {
+  background-color: #fafafa;
+  border-radius: 5px;
+  overflow: hidden;
+  padding-left: 0.8em;
+  padding-right: 0.8em;
+  padding-top: 0.4em;
+  padding-bottom: 0.4em;
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.05);
+  margin-bottom: 20px;
+  border: 1px solid #e3e3e3;
+}
+
+div.holowidgets {
+  padding-right: 0;
+  width: 25%;
+}
+
+div.holoslider {
+  min-height: 0 !important;
+  height: 0.8em;
+  width: 100%;
+}
+
+div.holoformgroup {
+  padding-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+div.hologroup {
+  padding-left: 0;
+  padding-right: 0.8em;
+  width: 100%;
+}
+
+.holoselect {
+  width: 92%;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.holotext {
+  padding-left:  0.5em;
+  padding-right: 0;
+  width: 100%;
+}
+
+.holowidgets .ui-resizable-se {
+  visibility: hidden
+}
+
+.holoframe > .ui-resizable-se {
+  visibility: hidden
+}
+
+.holowidgets .ui-resizable-s {
+  visibility: hidden
+}
+
+
+/* CSS rules for noUISlider based slider used by JupyterLab extension  */
+
+.noUi-handle {
+  width: 20px !important;
+  height: 20px !important;
+  left: -5px !important;
+  top: -5px !important;
+}
+
+.noUi-handle:before, .noUi-handle:after {
+  visibility: hidden;
+  height: 0px;
+}
+
+.noUi-target {
+  margin-left: 0.5em;
+  margin-right: 0.5em;
+}
+
+div.bk-hbox {
+    display: flex;
+    justify-content: center;
+}
+
+div.bk-hbox div.bk-plot {
+    padding: 8px;
+}
+
+div.bk-hbox div.bk-data-table {
+    padding: 20px;
+}
+</style><div style='display: table; margin: 0 auto;'>
+
+
+
+
+
+
+  <div class="bk-root" id="84a29285-4ccf-40bd-b5d4-c4056e1345cb"></div>
+
+<script type="text/javascript">
+  (function(root) {
+  function embed_document(root) {
+    
+  var docs_json = {"0a61a4d9-e973-4d6a-8a56-ef02541fb5cf":{"roots":{"references":[{"attributes":{"background_fill_color":{"value":"black"},"below":[{"id":"1489","type":"LinearAxis"}],"left":[{"id":"1494","type":"LinearAxis"}],"min_border_bottom":10,"min_border_left":10,"min_border_right":10,"min_border_top":10,"plot_height":700,"plot_width":1200,"renderers":[{"id":"1489","type":"LinearAxis"},{"id":"1493","type":"Grid"},{"id":"1494","type":"LinearAxis"},{"id":"1498","type":"Grid"},{"id":"1503","type":"BoxAnnotation"},{"id":"1530","type":"TileRenderer"},{"id":"1539","type":"GlyphRenderer"},{"id":"1542","type":"ColorBar"}],"right":[{"id":"1542","type":"ColorBar"}],"title":{"id":"1480","type":"Title"},"toolbar":{"id":"1502","type":"Toolbar"},"x_range":{"id":"1475","type":"Range1d"},"x_scale":{"id":"1485","type":"LinearScale"},"y_range":{"id":"1476","type":"Range1d"},"y_scale":{"id":"1487","type":"LinearScale"}},"id":"1481","subtype":"Figure","type":"Plot"},{"attributes":{"dimension":"lon"},"id":"1512","type":"MercatorTickFormatter"},{"attributes":{"dimension":"lat"},"id":"1513","type":"MercatorTicker"},{"attributes":{"tile_source":{"id":"1527","type":"WMTSTileSource"}},"id":"1530","type":"TileRenderer"},{"attributes":{"plot":null,"text":"","text_color":{"value":"black"},"text_font_size":{"value":"12pt"}},"id":"1480","type":"Title"},{"attributes":{"bottom_units":"screen","fill_alpha":{"value":0.5},"fill_color":{"value":"lightgrey"},"left_units":"screen","level":"overlay","line_alpha":{"value":1.0},"line_color":{"value":"black"},"line_dash":[4,4],"line_width":{"value":2},"plot":null,"render_mode":"css","right_units":"screen","top_units":"screen"},"id":"1503","type":"BoxAnnotation"},{"attributes":{"bar_line_color":{"value":"black"},"color_mapper":{"id":"1532","type":"LinearColorMapper"},"formatter":{"id":"1545","type":"BasicTickFormatter"},"label_standoff":8,"location":[0,0],"major_tick_line_color":{"value":"black"},"plot":{"id":"1481","subtype":"Figure","type":"Plot"},"ticker":{"id":"1541","type":"BasicTicker"}},"id":"1542","type":"ColorBar"},{"attributes":{},"id":"1501","type":"ResetTool"},{"attributes":{},"id":"1500","type":"PanTool"},{"attributes":{"data_source":{"id":"1533","type":"ColumnDataSource"},"glyph":{"id":"1536","type":"HexTile"},"hover_glyph":null,"muted_glyph":{"id":"1538","type":"HexTile"},"nonselection_glyph":{"id":"1537","type":"HexTile"},"selection_glyph":null,"view":{"id":"1540","type":"CDSView"}},"id":"1539","type":"GlyphRenderer"},{"attributes":{},"id":"1485","type":"LinearScale"},{"attributes":{"source":{"id":"1533","type":"ColumnDataSource"}},"id":"1540","type":"CDSView"},{"attributes":{},"id":"1487","type":"LinearScale"},{"attributes":{},"id":"1499","type":"SaveTool"},{"attributes":{"active_drag":"auto","active_inspect":"auto","active_multi":null,"active_scroll":"auto","active_tap":"auto","tools":[{"id":"1477","type":"WheelZoomTool"},{"id":"1478","type":"BoxZoomTool"},{"id":"1479","type":"HoverTool"},{"id":"1499","type":"SaveTool"},{"id":"1500","type":"PanTool"},{"id":"1501","type":"ResetTool"}]},"id":"1502","type":"Toolbar"},{"attributes":{"axis_label":"Longitude","bounds":"auto","formatter":{"id":"1512","type":"MercatorTickFormatter"},"major_label_orientation":"horizontal","plot":{"id":"1481","subtype":"Figure","type":"Plot"},"ticker":{"id":"1511","type":"MercatorTicker"},"visible":false},"id":"1489","type":"LinearAxis"},{"attributes":{},"id":"1490","type":"BasicTicker"},{"attributes":{"dimension":1,"grid_line_color":{"value":null},"plot":{"id":"1481","subtype":"Figure","type":"Plot"},"ticker":{"id":"1495","type":"BasicTicker"}},"id":"1498","type":"Grid"},{"attributes":{"high":1870,"low":1,"palette":["#440154","#440255","#440357","#450558","#45065a","#45085b","#46095c","#460b5e","#460c5f","#460e61","#470f62","#471163","#471265","#471466","#471567","#471669","#47186a","#48196b","#481a6c","#481c6e","#481d6f","#481e70","#482071","#482172","#482273","#482374","#472575","#472676","#472777","#472878","#472a79","#472b7a","#472c7b","#462d7c","#462f7c","#46307d","#46317e","#45327f","#45347f","#453580","#453681","#443781","#443982","#433a83","#433b83","#433c84","#423d84","#423e85","#424085","#414186","#414286","#404387","#404487","#3f4587","#3f4788","#3e4888","#3e4989","#3d4a89","#3d4b89","#3d4c89","#3c4d8a","#3c4e8a","#3b508a","#3b518a","#3a528b","#3a538b","#39548b","#39558b","#38568b","#38578c","#37588c","#37598c","#365a8c","#365b8c","#355c8c","#355d8c","#345e8d","#345f8d","#33608d","#33618d","#32628d","#32638d","#31648d","#31658d","#31668d","#30678d","#30688d","#2f698d","#2f6a8d","#2e6b8e","#2e6c8e","#2e6d8e","#2d6e8e","#2d6f8e","#2c708e","#2c718e","#2c728e","#2b738e","#2b748e","#2a758e","#2a768e","#2a778e","#29788e","#29798e","#287a8e","#287a8e","#287b8e","#277c8e","#277d8e","#277e8e","#267f8e","#26808e","#26818e","#25828e","#25838d","#24848d","#24858d","#24868d","#23878d","#23888d","#23898d","#22898d","#228a8d","#228b8d","#218c8d","#218d8c","#218e8c","#208f8c","#20908c","#20918c","#1f928c","#1f938b","#1f948b","#1f958b","#1f968b","#1e978a","#1e988a","#1e998a","#1e998a","#1e9a89","#1e9b89","#1e9c89","#1e9d88","#1e9e88","#1e9f88","#1ea087","#1fa187","#1fa286","#1fa386","#20a485","#20a585","#21a685","#21a784","#22a784","#23a883","#23a982","#24aa82","#25ab81","#26ac81","#27ad80","#28ae7f","#29af7f","#2ab07e","#2bb17d","#2cb17d","#2eb27c","#2fb37b","#30b47a","#32b57a","#33b679","#35b778","#36b877","#38b976","#39b976","#3bba75","#3dbb74","#3ebc73","#40bd72","#42be71","#44be70","#45bf6f","#47c06e","#49c16d","#4bc26c","#4dc26b","#4fc369","#51c468","#53c567","#55c666","#57c665","#59c764","#5bc862","#5ec961","#60c960","#62ca5f","#64cb5d","#67cc5c","#69cc5b","#6bcd59","#6dce58","#70ce56","#72cf55","#74d054","#77d052","#79d151","#7cd24f","#7ed24e","#81d34c","#83d34b","#86d449","#88d547","#8bd546","#8dd644","#90d643","#92d741","#95d73f","#97d83e","#9ad83c","#9dd93a","#9fd938","#a2da37","#a5da35","#a7db33","#aadb32","#addc30","#afdc2e","#b2dd2c","#b5dd2b","#b7dd29","#bade27","#bdde26","#bfdf24","#c2df22","#c5df21","#c7e01f","#cae01e","#cde01d","#cfe11c","#d2e11b","#d4e11a","#d7e219","#dae218","#dce218","#dfe318","#e1e318","#e4e318","#e7e419","#e9e419","#ece41a","#eee51b","#f1e51c","#f3e51e","#f6e61f","#f8e621","#fae622","#fde724"]},"id":"1532","type":"LinearColorMapper"},{"attributes":{"aspect_scale":1.233829532751723,"fill_alpha":{"value":0.5},"fill_color":{"field":"Count","transform":{"id":"1532","type":"LinearColorMapper"}},"line_alpha":{"value":0.5},"line_color":{"field":"Count","transform":{"id":"1532","type":"LinearColorMapper"}},"q":{"field":"q"},"r":{"field":"r"},"size":739.6165078023821},"id":"1537","type":"HexTile"},{"attributes":{},"id":"1495","type":"BasicTicker"},{"attributes":{"axis_label":"Latitude","bounds":"auto","formatter":{"id":"1514","type":"MercatorTickFormatter"},"major_label_orientation":"horizontal","plot":{"id":"1481","subtype":"Figure","type":"Plot"},"ticker":{"id":"1513","type":"MercatorTicker"},"visible":false},"id":"1494","type":"LinearAxis"},{"attributes":{},"id":"1541","type":"BasicTicker"},{"attributes":{"callback":null,"end":-11014571.002983762,"reset_end":-11014571.002983762,"reset_start":-11059529.594598493,"start":-11059529.594598493},"id":"1475","type":"Range1d"},{"attributes":{},"id":"1545","type":"BasicTickFormatter"},{"attributes":{"callback":null,"end":2223782.4596212264,"reset_end":2223782.4596212264,"reset_start":2168311.2215360478,"start":2168311.2215360478},"id":"1476","type":"Range1d"},{"attributes":{},"id":"1548","type":"UnionRenderers"},{"attributes":{"aspect_scale":1.233829532751723,"fill_alpha":{"value":0.5},"fill_color":{"field":"Count","transform":{"id":"1532","type":"LinearColorMapper"}},"line_alpha":{"value":0.5},"line_color":{"field":"Count","transform":{"id":"1532","type":"LinearColorMapper"}},"q":{"field":"q"},"r":{"field":"r"},"size":739.6165078023821},"id":"1536","type":"HexTile"},{"attributes":{"attribution":"&copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors","url":"https://maps.wikimedia.org/osm-intl/{Z}/{X}/{Y}@2x.png"},"id":"1527","type":"WMTSTileSource"},{"attributes":{"callback":null,"data":{"Count":[897,1003,989,437,15,352,851,1742,88,906,540,456,193,1328,361,489,591,518,816,1562,1284,711,290,527,564,341,673,525,951,768,154,1095,347,395,539,439,471,538,1870,614,1591,829,334,678,106,1340,238,785,1180,99,444,620,945,356,647,1024,860,816,439,1240,1012,630,697,964,1041,767,1013,1243,509,506,677,1400,74,697,450,611,70,430,274,305,525,344,521,667,189,413,144,536,1281,723,384,562,1644,368,48,1070,343,671,310,1542,616,579,219,589,397,850,1429,451,828,93,453,231,1108,269,178,256,764,454,552,572,969,381,817,1291,464,295,165,641,1021,213,138,696,1081,285,1724,269,232,97,389,352,714,157,618,511,103,743,148,1524,38,220,26,69,215,827,905,1335,548,916,1237,1058,413,117,96,327,852,193,646,1052,21,326,568,748,43,59,190,642,96,625,468,1698,444,1371,151,562,83,365,315,1099,533,297,359,646,162,693,259,306,626,526,306,858,27,245,974,714,85,184,406,167,775,135,441,307,427,535,99,319,346,962,258,366,665,924,162,59,60,1373,361,139,473,294,172,353,201,1374,332,209,240,1041,539,238,992,783,241,233,764,241,361,454,11,722,771,717,72,29,466,299,218,213,206,595,583,378,466,86,129,190,175,574,264,566,267,44,789,391,525,292,90,742,402,408,388,872,397,359,247,133,973,560,69,272,6,216,627,937,196,290,1105,428,427,797,657,1182,15,429,262,1549,127,365,340,836,123,624,271,319,348,16,233,323,37,427,117,124,122,374,252,562,451,329,270,613,1000,563,323,273,385,201,55,442,784,280,201,371,826,243,332,821,381,888,449,81,703,776,233,261,106,144,398,573,450,578,153,970,105,327,442,226,581,280,155,710,559,112,608,118,720,458,545,215,99,520,1068,244,111,1234,164,381,249,448,377,267,101,72,259,339,124,404,386,295,69,469,171,78,38,10,101,228,421,62,295,322,211,196,567,535,340,35,154,108,267,953,41,188,503,163,366,136,270,113,140,118,65,369,695,129,246,198,176,30,361,157,99,45,526,247,260,321,585,243,655,625,328,193,235,83,70,420,345,89,164,401,96,455,88,138,120,136,253,132,3,173,470,200,318,476,352,54,12,164,180,24,91,186,98,179,406,117,43,73,122,377,304,246,613,189,80,421,275,371,38,62,19,204,668,164,286,384,189,115,460,576,76,737,14,15,317,410,571,85,8,367,185,111,73,67,102,241,286,584,4,29,187,116,63,382,221,65,72,232,172,98,300,481,1,43,383,370,301,159,46,78,115,5,27,79,43,431,140,52,262,9,635,457,187,126,263,1,106,360,74,20,102,308,88,9,81,8,379,1,34,263,269,9,12,61,109,421,185,1,87,14,95,298,64,178,144,192,26,95,35,48,104,20,124,45,24,165,2,115,93,144,120,43,32,78,81,52,174,113,17,145,18,23,207,91,106,95,51,138,112,71,48,115,62,25,29,197,187,60,6,134,650,56,162,176,49,30,7,105,32,57,53,17,79,107,21,103,52,75,176,42,203,14,55,231,1,142,142,320,23,90,11,29,36,18,27,39,34,246,119,30,236,33,115,11,61,32,13,87,222,126,33,26,189,18,33,145,17,11,74,4,48,28,21,4,92,63,9,50,11,49,92,11,91,13,5,23,44,3,47,29,28,74,14,25,1,1,15,13,13,42,16,13,18,7,23,63,19,80,148,27,14,86,1,13,29,22,15,32,3,30,8,69,17,40,2,27,75,37,26,57,29,17,1,55,45,12,13,4,1,5,1,18,63,2,16,1,6,6,10,4,4,7,18,31,9,10,10,10,15,6,16,11,14,3,10,4,2,17,11,1,12,1,15,4,10,7,7,2,5,24,12,12,23,20,13,14,20,2,1,1,8,23,9,4,4,6,3,27,10,2,1,25,3,4,3,12,6,1,13,1,7,7,2,3,2,3,2,7,4,1,3,7,1,16,15,12,1,1,11,19,6,13,4,6,6,3,1,4,3,5,5,6,2,7,3,11,5,4,6,9,2,1,7,1,5,3,4,1,4,1,6,5,14,3,1,4,2,3,5,5,2,1,1,6,1,11,2,4,1,1,1,2,1,1,1,1,1,1,5,1,1,5,2,1,1,1,1,1,1,1,1,1,1,1,2,1,1,1,1,1,1],"q":[-9631,-9638,-9640,-9644,-9629,-9656,-9638,-9643,-9652,-9639,-9639,-9645,-9649,-9631,-9632,-9645,-9648,-9642,-9646,-9642,-9642,-9630,-9659,-9638,-9629,-9632,-9644,-9632,-9638,-9635,-9637,-9641,-9633,-9636,-9641,-9635,-9633,-9645,-9639,-9641,-9638,-9635,-9638,-9633,-9640,-9642,-9639,-9637,-9645,-9626,-9629,-9632,-9636,-9630,-9645,-9649,-9647,-9641,-9637,-9639,-9640,-9643,-9639,-9640,-9640,-9629,-9644,-9640,-9634,-9631,-9628,-9642,-9635,-9651,-9635,-9640,-9627,-9644,-9628,-9632,-9628,-9629,-9636,-9631,-9635,-9634,-9627,-9638,-9642,-9651,-9637,-9632,-9643,-9627,-9624,-9633,-9646,-9629,-9624,-9644,-9637,-9640,-9634,-9634,-9647,-9641,-9641,-9632,-9644,-9634,-9630,-9651,-9642,-9655,-9651,-9626,-9639,-9638,-9631,-9633,-9636,-9646,-9654,-9647,-9638,-9628,-9630,-9638,-9652,-9629,-9636,-9641,-9640,-9632,-9638,-9644,-9646,-9634,-9646,-9629,-9633,-9633,-9642,-9641,-9625,-9644,-9626,-9642,-9648,-9636,-9628,-9635,-9650,-9643,-9637,-9641,-9647,-9645,-9643,-9642,-9638,-9654,-9645,-9634,-9641,-9640,-9638,-9630,-9643,-9646,-9639,-9650,-9627,-9628,-9650,-9640,-9641,-9645,-9645,-9640,-9640,-9639,-9636,-9646,-9627,-9650,-9648,-9641,-9634,-9628,-9633,-9630,-9642,-9636,-9645,-9652,-9642,-9629,-9648,-9633,-9639,-9632,-9641,-9643,-9632,-9631,-9634,-9652,-9641,-9626,-9644,-9644,-9631,-9649,-9625,-9638,-9630,-9643,-9643,-9638,-9632,-9635,-9658,-9637,-9643,-9643,-9630,-9630,-9630,-9634,-9625,-9637,-9632,-9640,-9633,-9631,-9628,-9644,-9634,-9652,-9648,-9634,-9638,-9645,-9642,-9643,-9640,-9636,-9654,-9649,-9647,-9653,-9653,-9641,-9633,-9649,-9628,-9653,-9627,-9635,-9632,-9630,-9637,-9629,-9630,-9649,-9627,-9640,-9635,-9632,-9648,-9623,-9641,-9644,-9642,-9633,-9649,-9643,-9632,-9642,-9647,-9633,-9638,-9632,-9642,-9640,-9641,-9637,-9654,-9634,-9631,-9633,-9650,-9644,-9631,-9643,-9637,-9629,-9637,-9639,-9643,-9641,-9655,-9635,-9630,-9639,-9630,-9631,-9625,-9634,-9651,-9636,-9657,-9643,-9630,-9650,-9634,-9646,-9628,-9639,-9631,-9634,-9630,-9638,-9638,-9627,-9628,-9648,-9633,-9642,-9647,-9638,-9651,-9634,-9631,-9643,-9641,-9643,-9650,-9639,-9634,-9651,-9636,-9647,-9636,-9641,-9632,-9646,-9651,-9624,-9643,-9640,-9652,-9637,-9631,-9647,-9626,-9633,-9642,-9631,-9630,-9644,-9654,-9637,-9633,-9647,-9640,-9635,-9628,-9636,-9654,-9656,-9637,-9626,-9634,-9655,-9631,-9639,-9642,-9646,-9639,-9629,-9628,-9646,-9633,-9632,-9645,-9635,-9641,-9633,-9627,-9636,-9630,-9636,-9654,-9639,-9634,-9640,-9634,-9632,-9627,-9635,-9632,-9627,-9626,-9636,-9631,-9632,-9641,-9646,-9631,-9636,-9635,-9639,-9644,-9640,-9642,-9640,-9635,-9640,-9646,-9639,-9634,-9643,-9645,-9625,-9629,-9651,-9627,-9636,-9626,-9652,-9643,-9626,-9638,-9628,-9639,-9641,-9638,-9653,-9629,-9629,-9649,-9652,-9627,-9631,-9631,-9628,-9645,-9639,-9635,-9649,-9625,-9651,-9653,-9642,-9636,-9625,-9648,-9637,-9649,-9632,-9648,-9650,-9631,-9626,-9645,-9653,-9651,-9650,-9639,-9648,-9630,-9642,-9637,-9661,-9642,-9632,-9646,-9630,-9627,-9637,-9653,-9646,-9635,-9648,-9630,-9637,-9647,-9646,-9639,-9651,-9650,-9629,-9647,-9636,-9630,-9648,-9648,-9625,-9636,-9647,-9633,-9633,-9625,-9633,-9646,-9652,-9634,-9637,-9623,-9634,-9627,-9635,-9637,-9643,-9644,-9655,-9622,-9630,-9637,-9628,-9627,-9638,-9631,-9653,-9650,-9635,-9643,-9634,-9652,-9640,-9649,-9636,-9654,-9656,-9630,-9633,-9626,-9651,-9632,-9639,-9658,-9631,-9633,-9650,-9630,-9628,-9654,-9633,-9629,-9645,-9631,-9628,-9660,-9635,-9648,-9638,-9653,-9650,-9637,-9629,-9629,-9633,-9630,-9661,-9629,-9638,-9644,-9623,-9655,-9628,-9628,-9626,-9631,-9623,-9640,-9641,-9649,-9635,-9652,-9649,-9623,-9662,-9650,-9641,-9643,-9646,-9653,-9633,-9637,-9632,-9630,-9652,-9648,-9648,-9654,-9651,-9635,-9657,-9625,-9638,-9648,-9642,-9637,-9652,-9627,-9630,-9644,-9624,-9648,-9641,-9649,-9626,-9629,-9628,-9641,-9647,-9629,-9629,-9628,-9643,-9645,-9629,-9631,-9655,-9645,-9631,-9624,-9625,-9631,-9643,-9630,-9644,-9629,-9647,-9626,-9632,-9633,-9647,-9636,-9640,-9653,-9648,-9655,-9630,-9655,-9629,-9631,-9657,-9654,-9649,-9636,-9639,-9627,-9649,-9654,-9631,-9642,-9639,-9631,-9659,-9663,-9651,-9625,-9629,-9641,-9635,-9652,-9632,-9659,-9624,-9661,-9647,-9648,-9635,-9627,-9641,-9641,-9630,-9636,-9627,-9647,-9634,-9649,-9636,-9631,-9625,-9627,-9628,-9638,-9644,-9627,-9642,-9623,-9644,-9635,-9630,-9655,-9640,-9650,-9627,-9632,-9653,-9649,-9653,-9632,-9631,-9642,-9640,-9653,-9634,-9626,-9653,-9637,-9647,-9656,-9638,-9649,-9633,-9656,-9635,-9632,-9655,-9626,-9657,-9656,-9628,-9651,-9631,-9627,-9624,-9648,-9655,-9646,-9629,-9644,-9628,-9646,-9654,-9653,-9633,-9651,-9646,-9636,-9646,-9621,-9644,-9626,-9647,-9655,-9623,-9628,-9628,-9635,-9655,-9648,-9626,-9626,-9648,-9642,-9622,-9624,-9656,-9650,-9628,-9647,-9637,-9632,-9640,-9662,-9624,-9629,-9637,-9634,-9656,-9663,-9650,-9648,-9656,-9636,-9623,-9654,-9653,-9637,-9646,-9636,-9656,-9647,-9656,-9644,-9645,-9654,-9637,-9628,-9654,-9652,-9637,-9656,-9651,-9650,-9630,-9657,-9633,-9624,-9627,-9664,-9660,-9636,-9625,-9652,-9636,-9622,-9658,-9645,-9631,-9655,-9652,-9644,-9633,-9638,-9630,-9633,-9634,-9646,-9630,-9627,-9649,-9660,-9639,-9639,-9649,-9656,-9633,-9640,-9649,-9633,-9627,-9650,-9650,-9646,-9629,-9650,-9652,-9659,-9636,-9664,-9630,-9622,-9651,-9634,-9646,-9632,-9632,-9642,-9651,-9629,-9648,-9643,-9658,-9641,-9639,-9632,-9626,-9629,-9630,-9624,-9658,-9624,-9628,-9630,-9639,-9649,-9637,-9627,-9634,-9625,-9660,-9629,-9642,-9645,-9643,-9629,-9656,-9651,-9644,-9662,-9662,-9655,-9658,-9637,-9639,-9650,-9632,-9657,-9633,-9652,-9655,-9651,-9635,-9629,-9629,-9662,-9645,-9650,-9634,-9659,-9650,-9627,-9657,-9635,-9638,-9653,-9660,-9645,-9624,-9634,-9657,-9665,-9627,-9640,-9655,-9656,-9632,-9659,-9654,-9645,-9644,-9628,-9653,-9638,-9637,-9655,-9634,-9655,-9660,-9639,-9655,-9635,-9661,-9659],"r":[-1994,-1985,-1975,-1975,-1970,-1980,-1983,-1983,-1971,-1984,-1974,-1982,-1978,-1987,-1990,-1981,-1984,-1987,-1972,-1985,-1989,-1988,-1978,-1991,-1989,-1984,-1978,-1983,-1987,-1989,-1996,-1982,-1977,-1994,-1977,-1993,-1994,-1975,-1988,-1975,-1988,-1987,-1992,-1982,-1995,-1984,-1994,-1990,-1979,-1982,-1987,-1985,-1989,-1985,-1974,-1975,-1979,-1974,-1981,-1989,-1979,-1980,-1981,-1980,-1984,-1990,-1979,-1989,-1976,-1991,-1990,-1981,-1963,-1973,-1992,-1981,-1988,-1984,-1979,-1979,-1985,-1992,-1985,-1983,-1981,-1988,-1987,-1977,-1983,-1982,-1978,-1986,-1988,-1984,-1982,-1992,-1968,-1986,-1981,-1981,-1989,-1982,-1989,-1993,-1971,-1980,-1986,-1994,-1980,-1973,-1994,-1974,-1986,-1980,-1971,-1996,-1983,-1981,-1995,-1993,-1988,-1979,-1981,-1975,-1974,-1984,-1997,-1986,-1981,-1991,-1979,-1990,-1983,-1995,-1989,-1977,-1984,-1998,-1977,-1983,-1987,-1978,-1974,-1973,-1993,-1983,-1995,-1988,-1965,-1984,-1972,-1974,-1979,-1989,-1985,-1985,-1973,-1978,-1982,-1982,-1982,-1975,-1971,-1980,-1981,-1994,-1993,-1986,-1963,-1982,-1975,-1983,-2002,-1973,-1978,-1978,-1994,-1980,-1977,-1985,-1990,-1985,-1995,-1975,-1982,-1977,-1981,-1988,-1991,-1986,-1998,-1995,-1976,-1980,-1987,-1982,-1979,-1985,-1980,-1995,-1968,-1997,-1979,-1985,-1973,-1981,-1994,-1972,-1978,-1984,-1987,-1976,-1997,-1983,-1994,-1980,-1982,-1984,-1978,-1994,-1992,-1988,-1979,-1969,-1968,-1981,-1996,-1980,-1987,-1981,-1980,-1982,-1981,-1987,-1980,-1998,-1981,-1982,-1986,-1983,-1978,-1985,-1975,-1986,-1980,-1975,-1977,-1981,-1957,-1977,-1974,-1981,-1978,-1962,-1991,-1981,-1992,-1973,-1990,-1985,-1982,-1981,-1980,-1995,-2000,-1979,-1979,-1974,-1977,-1991,-1983,-1980,-1976,-1988,-1972,-1990,-1985,-1979,-1989,-1978,-1972,-1983,-1976,-1998,-1991,-1993,-1983,-1986,-1972,-1977,-2001,-1975,-1975,-1974,-1989,-1977,-1988,-1993,-1983,-1990,-1972,-1984,-1971,-1976,-1991,-1987,-1974,-1984,-1982,-1992,-1979,-1990,-1980,-1986,-1993,-1963,-1975,-1974,-1974,-1980,-1969,-1978,-1978,-1990,-1978,-1983,-1993,-1974,-1985,-1975,-1978,-1984,-1983,-1984,-1979,-1970,-1968,-1987,-1976,-1993,-1996,-1976,-1986,-1985,-1977,-1989,-1978,-1980,-1975,-1979,-1990,-1986,-1973,-1979,-1999,-1981,-1980,-1996,-1971,-1986,-1999,-1973,-1976,-1977,-1984,-1983,-1976,-1983,-1991,-1987,-1980,-1981,-1984,-1993,-1987,-1981,-1993,-1976,-1969,-1981,-1986,-1996,-2002,-1978,-1974,-1993,-1984,-1990,-1970,-1997,-1980,-1978,-1983,-1982,-1977,-1979,-1990,-1991,-1974,-1987,-1994,-1973,-1970,-1985,-1994,-1996,-1992,-1975,-1971,-1973,-1980,-1993,-1986,-1991,-1972,-1968,-1977,-1969,-1984,-1988,-1987,-1996,-1983,-1976,-1985,-1995,-1984,-1981,-1981,-1974,-1988,-1976,-1974,-1992,-1979,-1987,-1995,-1967,-1995,-1976,-1998,-1974,-1984,-1975,-1992,-1988,-1990,-1994,-1973,-1982,-1996,-1976,-1981,-1980,-1979,-1990,-1975,-1996,-1973,-1991,-1969,-1988,-1969,-1980,-1977,-1983,-1983,-1971,-1963,-1981,-1978,-1985,-1984,-1973,-1994,-1977,-1967,-1974,-1976,-1971,-1996,-1976,-1980,-1985,-1991,-1976,-1968,-1974,-1986,-1986,-1992,-1978,-1974,-1971,-1977,-1983,-1990,-1975,-1968,-1979,-1997,-1982,-1988,-1999,-1992,-1989,-1971,-1977,-1995,-1987,-1981,-1982,-1974,-1979,-1993,-1973,-1985,-1982,-1976,-1989,-1995,-1996,-1991,-1969,-1978,-1975,-1982,-1982,-1965,-1979,-1980,-1970,-1971,-1992,-1982,-1977,-1970,-1981,-1991,-1977,-1980,-1977,-1962,-1966,-1986,-1984,-1992,-1982,-1974,-1976,-2000,-1969,-1965,-1980,-1977,-1995,-1982,-1997,-1982,-1985,-1992,-1994,-1979,-1979,-1979,-1960,-2001,-1996,-1967,-1982,-1979,-1989,-1988,-1989,-1985,-1977,-1973,-1961,-1982,-1980,-1979,-1965,-1975,-1976,-1972,-1969,-1971,-1961,-1974,-1964,-1997,-1996,-2001,-1978,-1977,-1972,-1979,-1984,-1978,-1977,-1991,-1970,-1971,-1968,-1964,-1974,-1966,-1998,-1971,-1980,-1970,-1992,-1968,-1981,-1981,-1978,-1991,-1969,-2002,-1982,-2000,-1966,-1976,-1973,-1974,-1975,-1972,-1996,-1996,-1983,-1970,-1969,-1977,-1968,-1977,-1980,-1990,-1999,-1972,-1970,-1991,-1971,-1972,-1979,-1978,-1967,-1957,-1972,-1973,-1979,-1978,-1967,-1969,-1973,-2001,-1980,-1971,-2000,-1970,-1969,-1982,-1979,-1975,-1972,-1974,-1997,-1987,-1994,-1967,-1977,-1980,-1995,-1976,-1968,-1963,-1972,-1997,-1972,-1993,-1973,-1976,-1978,-1984,-1969,-1974,-1963,-1967,-1990,-1993,-1983,-1964,-1986,-1995,-1965,-1978,-1989,-1969,-1975,-1976,-1962,-1973,-2003,-1969,-1965,-1972,-1983,-1972,-1976,-1993,-1972,-1977,-1970,-1979,-1958,-1961,-1964,-1978,-1965,-1973,-1970,-1975,-1975,-1976,-1974,-2003,-1954,-1967,-1966,-1967,-1975,-1986,-1975,-1986,-1967,-1967,-1980,-1966,-2001,-1983,-1973,-1967,-1973,-1969,-1965,-1973,-1969,-1977,-1970,-1966,-1976,-1970,-1979,-1971,-1995,-1970,-1977,-1964,-1997,-1978,-1967,-1966,-1978,-1993,-1979,-1967,-1977,-1966,-1967,-1971,-1964,-1965,-1983,-1978,-1963,-1964,-1971,-1976,-1961,-1966,-1982,-1964,-1976,-1966,-1966,-1970,-1966,-1970,-1968,-1967,-1974,-1969,-1967,-1965,-1966,-2003,-1967,-1966,-1975,-1969,-1966,-1971,-2002,-1978,-1968,-1978,-1970,-1974,-1967,-1968,-1978,-1959,-1962,-1977,-1980,-1988,-1968,-1965,-1965,-1965,-1960,-1968,-1969,-1969,-1963,-1970,-1976,-1973,-1963,-1978,-1971,-1962,-1970,-1965,-1962,-1992,-1964,-1963,-2004,-1962,-1960,-1964,-1975,-1969,-1960,-1976,-1961,-1975,-1972,-1979,-1961,-1999,-1963,-1966,-1965,-1962,-1970,-1976,-1961,-1967,-1978,-1963,-1970,-1968,-2004,-1965,-1966,-1977,-1976,-1994,-1970,-1965,-1965,-1962,-1965,-1989,-1961,-1989,-1976,-1999,-1963,-1968,-1964,-1988,-1976,-1960,-1963,-1975,-1967,-1972,-1977,-1962,-1964,-1968,-1963,-1968,-1961,-1970,-1966,-1962,-1962,-1969,-1967,-1964,-1966,-1965,-1972,-1975,-1964,-1967,-1976,-1968,-1963,-1957,-1964,-1965,-1992,-1962,-1964,-1974,-1977,-1965,-1956,-1955,-1964,-1961,-1970,-1964,-1964,-1975,-1959,-1973,-1972,-1963,-1960,-1968,-1975,-1963,-1973,-1961,-1963,-1977]},"selected":{"id":"1534","type":"Selection"},"selection_policy":{"id":"1548","type":"UnionRenderers"}},"id":"1533","type":"ColumnDataSource"},{"attributes":{"grid_line_color":{"value":null},"plot":{"id":"1481","subtype":"Figure","type":"Plot"},"ticker":{"id":"1490","type":"BasicTicker"}},"id":"1493","type":"Grid"},{"attributes":{"zoom_on_axis":false},"id":"1477","type":"WheelZoomTool"},{"attributes":{"aspect_scale":1.233829532751723,"fill_alpha":{"value":0.2},"fill_color":{"field":"Count","transform":{"id":"1532","type":"LinearColorMapper"}},"line_alpha":{"value":0.2},"line_color":{"field":"Count","transform":{"id":"1532","type":"LinearColorMapper"}},"q":{"field":"q"},"r":{"field":"r"},"size":739.6165078023821},"id":"1538","type":"HexTile"},{"attributes":{"match_aspect":true,"overlay":{"id":"1503","type":"BoxAnnotation"}},"id":"1478","type":"BoxZoomTool"},{"attributes":{},"id":"1534","type":"Selection"},{"attributes":{"callback":null,"renderers":[{"id":"1539","type":"GlyphRenderer"}],"tooltips":[["Count","@{Count}"]]},"id":"1479","type":"HoverTool"},{"attributes":{"dimension":"lat"},"id":"1514","type":"MercatorTickFormatter"},{"attributes":{"dimension":"lon"},"id":"1511","type":"MercatorTicker"}],"root_ids":["1481"]},"title":"Bokeh Application","version":"1.0.2"}};
+  var render_items = [{"docid":"0a61a4d9-e973-4d6a-8a56-ef02541fb5cf","roots":{"1481":"84a29285-4ccf-40bd-b5d4-c4056e1345cb"}}];
+  root.Bokeh.embed.embed_items_notebook(docs_json, render_items);
+
+  }
+  if (root.Bokeh !== undefined) {
+    embed_document(root);
+  } else {
+    var attempts = 0;
+    var timer = setInterval(function(root) {
+      if (root.Bokeh !== undefined) {
+        embed_document(root);
+        clearInterval(timer);
+      }
+      attempts++;
+      if (attempts > 100) {
+        console.log("Bokeh: ERROR: Unable to run BokehJS code because BokehJS library is missing");
+        clearInterval(timer);
+      }
+    }, 10, root)
+  }
+})(window);
+</script>
+</div>
