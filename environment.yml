@@ -31,7 +31,7 @@ dependencies:
   - idna=2.7=py36_1002
   - jpeg=9c=h470a237_1
   - json-c=0.12.1=h470a237_1
-  - kealib=1.4.10=hb88cf67_0
+  - kealib
   - krb5=1.16.2=hbb41f41_0
   - libcurl=7.62.0=hbdb9355_0
   - libdap4=3.19.1=h8fe5423_1
@@ -41,9 +41,9 @@ dependencies:
   - libnetcdf
   - libpq
   - libspatialindex
-  - libspatialite=4.3.0a=hdfcc80b_23
-  - libssh2=1.8.0=h5b517e9_3
-  - libuuid=2.32.1=h470a237_2
+  - libspatialite
+  - libssh2
+  - libuuid
   - libxslt=1.1.32=h88dbc4e_2
   - lxml
   - nodejs=10.8.0=hfc679d8_1
@@ -54,7 +54,6 @@ dependencies:
   - pixman=0.34.0=h470a237_3
   - poppler=0.67.0=hdf8a1b3_2
   - poppler-data=0.4.9=0
-  - postgresql=10.5=h66035e0_1
   - proj4
   - pyarrow
   - pycparser=2.19=py_0
