@@ -26,7 +26,7 @@ dependencies:
   - giflib=5.1.4=h470a237_1
   - hdbscan
   - hdf4=4.2.13=h951d187_2
-  - hdf5=1.10.3=hc401514_2
+  - hdf5
   - holoviews
   - idna=2.7=py36_1002
   - jpeg=9c=h470a237_1
@@ -37,7 +37,7 @@ dependencies:
   - libdap4=3.19.1=h8fe5423_1
   - libgdal
   - libgfortran
-  - libkml=1.3.0=he469717_9
+  - libkml
   - libnetcdf
   - libpq
   - libspatialindex
@@ -99,17 +99,17 @@ dependencies:
   - gmp=6.1.2=h6c8ec71_1
   - gst-plugins-base=1.14.0=hbbd80ab_1
   - gstreamer=1.14.0=hb453b48_1
-  - heapdict=1.0.0=py36_2
+  - heapdict
   - icu=58.2=h9c2bf20_1
   - intel-openmp=2019.1=144
-  - ipykernel=5.1.0=py36h39e3cac_0
-  - ipython=7.2.0=py36h39e3cac_0
+  - ipykernel
+  - ipython
   - ipython_genutils=0.2.0=py36_0
   - ipywidgets=7.4.2=py36_0
   - jedi=0.13.1=py36_0
   - jinja2=2.10=py36_0
   - joblib
-  - jsonschema=2.6.0=py36_0
+  - jsonschema
   - jupyter
   - jupyter_client
   - jupyter_console
@@ -117,27 +117,27 @@ dependencies:
   - kiwisolver
   - libedit=3.1.20170329=h6b74fdf_2
   - libffi=3.2.1=hd88cf55_4
-  - libgcc-ng=8.2.0=hdf63c60_1
-  - libgfortran-ng=7.3.0=hdf63c60_0
+  - libgcc-ng
+  - libgfortran-ng
   - libpng=1.6.35=hbc83047_0
   - libsodium=1.0.16=h1bed415_0
   - libstdcxx-ng=8.2.0=hdf63c60_1
   - libtiff=4.0.9=he85c1e1_2
   - libxcb=1.13=h1bed415_1
   - libxml2=2.9.8=h26e45fe_1
-  - llvmlite=0.26.0=py36hd408876_0
+  - llvmlite
   - locket=0.2.0=py36_1
   - markupsafe=1.1.0=py36h7b6447c_0
   - matplotlib
   - mistune=0.8.4=py36h7b6447c_0
-  - msgpack-python=0.5.6=py36h6bb024c_1
+  - msgpack-python
   - nbconvert=5.3.1=py36_0
   - nbformat=4.4.0=py36_0
   - ncurses=6.1=he6710b0_1
   - notebook=5.7.2=py36_0
   - numba
   - numpy
-  - olefile=0.46=py36_0
+  - olefile
   - openssl=1.0.2p=h14c3975_0
   - packaging=18.0=py36_0
   - pandas
@@ -150,15 +150,15 @@ dependencies:
   - pexpect=4.6.0=py36_0
   - pickleshare=0.7.5=py36_0
   - pillow=5.3.0=py36h34e0f95_0
-  - pip=18.1=py36_0
+  - pip
   - prometheus_client=0.4.2=py36_0
   - prompt_toolkit=2.0.7=py36_0
   - psutil=5.4.8=py36h7b6447c_0
   - ptyprocess=0.6.0=py36_0
   - pygments=2.2.0=py36_0
   - pyparsing=2.3.0=py36_0
-  - pyqt=5.9.2=py36h05f1152_2
-  - python=3.6.6=h6e4f718_2
+  - pyqt
+  - python
   - python-dateutil=2.7.5=py36_0
   - pytz=2018.7=py36_0
   - pyyaml=3.13=py36h14c3975_0
@@ -166,7 +166,7 @@ dependencies:
   - qt=5.9.6=h8703b6f_2
   - qtconsole=4.4.2=py36_0
   - readline=7.0=h7b6447c_5
-  - scikit-learn=0.20.1=py36h4989274_0
+  - scikit-learn
   - scipy=1.1.0=py36hfa4b5c9_1
   - seaborn=0.9.0=py36_0
   - send2trash=1.5.0=py36_0
